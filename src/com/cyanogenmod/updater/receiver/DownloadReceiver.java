@@ -222,14 +222,6 @@ public class DownloadReceiver extends BroadcastReceiver{
                 style.bigText(context.getString(R.string.not_download_install_notice, updateUiName));
                 builder.setStyle(style);
 
-                Intent installIntent = new Intent(context, DownloadReceiver.class);
-                installIntent.setAction(ACTION_INSTALL_UPDATE);
-                installIntent.putExtra(EXTRA_FILENAME, updateFile.getName());
-
-                PendingIntent installPi = PendingIntent.getBroadcast(context, 0,
-                        installIntent, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_UPDATE_CURRENT);
-                builder.addAction(R.drawable.ic_tab_install,
-                        context.getString(R.string.not_action_install_update), installPi);
             }
 
             final NotificationManager nm =
