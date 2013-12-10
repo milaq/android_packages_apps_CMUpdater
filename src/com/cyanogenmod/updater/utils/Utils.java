@@ -20,13 +20,8 @@ import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Environment;
-import android.os.PowerManager;
-import android.os.SystemProperties;
-import android.os.UserHandle;
-import android.os.storage.StorageManager;
-import android.os.storage.StorageVolume;
+import android.os.UserManager;
 import android.preference.PreferenceManager;
-import android.util.Log;
 
 import com.cyanogenmod.updater.R;
 import com.cyanogenmod.updater.misc.Constants;
@@ -35,6 +30,10 @@ import com.cyanogenmod.updater.service.UpdateCheckService;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
+import java.util.Date;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
 
 public class Utils {
     private Utils() {
@@ -54,19 +53,31 @@ public class Utils {
     }
 
     public static String getDeviceType() {
-        return SystemProperties.get("ro.cm.device");
+        return android.os.Build.DEVICE;
     }
 
     public static String getInstalledVersion() {
-        return SystemProperties.get("ro.cm.version");
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd", Locale.US);
+        String formattedDate = sdf.format(new Date(getInstalledBuildDate()*1000));
+        return getCmVersion() + "-" + formattedDate + "-" + "UNOFFICIAL" + "-" + getDeviceType();
+    }
+    
+    public static String getCmVersion() {
+        String cmVersion;
+        switch (getInstalledApiLevel())  {
+            case 19: cmVersion = "11";
+            case 18: cmVersion = "10.2";
+            default: cmVersion = "11";
+        }
+        return cmVersion;
     }
 
     public static int getInstalledApiLevel() {
-        return SystemProperties.getInt("ro.build.version.sdk", 0);
+        return android.os.Build.VERSION.SDK_INT;
     }
 
     public static long getInstalledBuildDate() {
-        return SystemProperties.getLong("ro.build.date.utc", 0);
+        return android.os.Build.TIME/1000;
     }
 
     public static String getUserAgentString(Context context) {
@@ -118,7 +129,7 @@ public class Utils {
          */
 
         // Set the 'boot recovery' command
-        Process p = Runtime.getRuntime().exec("sh");
+        Process p = Runtime.getRuntime().exec("su");
         OutputStream os = p.getOutputStream();
         os.write("mkdir -p /cache/recovery/\n".getBytes());
         os.write("echo 'boot-recovery' >/cache/recovery/command\n".getBytes());
@@ -129,54 +140,31 @@ public class Utils {
            os.write("echo '--nandroid'  >> /cache/recovery/command\n".getBytes());
            }
            */
+        int userHandle = 0;
+		try {
+			Method getUserHandle = UserManager.class.getMethod("getUserHandle");
+			userHandle = (Integer) getUserHandle.invoke(context.getSystemService(Context.USER_SERVICE));
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 
         // Add the update folder/file name
         // Emulated external storage moved to user-specific paths in 4.2
-        String userPath = Environment.isExternalStorageEmulated() ? ("/" + UserHandle.myUserId()) : "";
+        String userPath = Environment.isExternalStorageEmulated() ? ("/" + userHandle) : "";
 
         String cmd = "echo '--update_package=" + getStorageMountpoint(context) + userPath
             + "/" + Constants.UPDATES_FOLDER + "/" + updateFileName
             + "' >> /cache/recovery/command\n";
-        os.write(cmd.getBytes());
-        os.flush();
 
         // Trigger the reboot
-        PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-        powerManager.reboot("recovery");
+        cmd = cmd + "reboot recovery\n";
+
+        os.write(cmd.getBytes());
+        os.flush();
     }
 
     private static String getStorageMountpoint(Context context) {
-        StorageManager sm = (StorageManager) context.getSystemService(Context.STORAGE_SERVICE);
-        StorageVolume[] volumes = sm.getVolumeList();
-        String primaryStoragePath = Environment.getExternalStorageDirectory().getAbsolutePath();
-        boolean alternateIsInternal = context.getResources().getBoolean(R.bool.alternateIsInternal);
-
-        if (volumes.length <= 1) {
-            // single storage, assume only /sdcard exists
-            return "/sdcard";
-        }
-
-        for (int i = 0; i < volumes.length; i++) {
-            StorageVolume v = volumes[i];
-            if (v.getPath().equals(primaryStoragePath)) {
-                /* This is the primary storage, where we stored the update file
-                 *
-                 * For CM10, a non-removable storage (partition or FUSE)
-                 * will always be primary. But we have older recoveries out there
-                 * in which /sdcard is the microSD, and the internal partition is
-                 * mounted at /emmc.
-                 *
-                 * At buildtime, we try to automagically guess from recovery.fstab
-                 * what's the recovery configuration for this device. If "/emmc"
-                 * exists, and the primary isn't removable, we assume it will be
-                 * mounted there.
-                 */
-                if (!v.isRemovable() && alternateIsInternal) {
-                    return "/emmc";
-                }
-            };
-        }
-        // Not found, assume non-alternate
+    	// use default primary storage for now
         return "/sdcard";
     }
 }
